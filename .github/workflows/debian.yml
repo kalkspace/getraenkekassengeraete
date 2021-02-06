@@ -7,7 +7,7 @@ env:
 
 jobs:
   push:
-    name: Push docker image
+    name: create dpkg
     runs-on: ubuntu-latest
     container: rust:buster
     steps:
