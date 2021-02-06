@@ -1,0 +1,24 @@
+name: Docker
+
+on: push
+
+env:
+  IMAGE_NAME: getraenkekassengeraete
+
+jobs:
+  push:
+    name: create dpkg
+    runs-on: ubuntu-latest
+    container: rust:buster
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build debian package
+        run: |
+          apt-get update && apt-get install -y libpcsclite-dev
+          cargo install cargo-deb
+          cargo deb
+      - uses: actions/upload-artifact@v2
+        with:
+          name: deb
+          path: |
+            target/debian/*.deb
