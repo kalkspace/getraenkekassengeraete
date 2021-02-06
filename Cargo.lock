@@ -295,12 +295,14 @@ dependencies = [
  "futures",
  "futures-core",
  "futures-util",
+ "libc",
  "log",
  "pcsc",
  "pretty_env_logger",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-fd",
  "tokio-stream",
  "warp",
 ]
@@ -1127,6 +1129,16 @@ dependencies = [
  "signal-hook-registry",
  "tokio-macros",
  "winapi",
+]
+
+[[package]]
+name = "tokio-fd"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cedf0b897610a4baff98bf6116c060c5cfe7574d4339c50e9d23fe09377641d"
+dependencies = [
+ "libc",
+ "tokio",
 ]
 
 [[package]]
