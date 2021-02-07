@@ -30,8 +30,11 @@ fn get_mete_card_state(card: &Card) -> Result<MeteCardState, Box<dyn StdError>> 
     if l == 0 {
         return Ok(MeteCardState::UnsupportedApplicationSelect);
     }
-    if l < 2 || rapdu[l - 2] != 0x90 || rapdu[l - 1] != 0x00 {
+    if l == 2 && rapdu[l - 2] == 0x6a && rapdu[l - 1] == 0x82 {
         return Ok(MeteCardState::ApplicationUnknown);
+    }
+    if l < 2 || rapdu[l - 2] != 0x90 || rapdu[l - 1] != 0x00 {
+        return Ok(MeteCardState::InvalidAnswer);
     }
 
     let apdu = b"\xd0\x00\x00\x00\x24";
@@ -69,7 +72,7 @@ fn parse_card(card: Card) -> Result<Option<CardDetail>, Box<dyn StdError>> {
     let result = match get_mete_card_state(&card)? {
         // YES! KalkGetränke app <3
         MeteCardState::Uuid(uuid) => Some(CardDetail::MeteUuid(uuid)),
-        MeteCardState::ApplicationUnknown => None,
+        MeteCardState::ApplicationUnknown => Some(CardDetail::GetraenkeKarteMissing),
         MeteCardState::InvalidAnswer => None,
         MeteCardState::UnsupportedApplicationSelect => {
             get_uid(&card)?.map(|uid| CardDetail::Plain(uid))
@@ -80,6 +83,7 @@ fn parse_card(card: Card) -> Result<Option<CardDetail>, Box<dyn StdError>> {
 
 #[derive(Debug)]
 pub enum CardDetail {
+    GetraenkeKarteMissing,
     MeteUuid(String),
     Plain(Vec<u8>),
 }

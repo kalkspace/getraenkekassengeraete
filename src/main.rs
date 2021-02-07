@@ -64,6 +64,12 @@ async fn consume_device_events<'a>(
                                 r#type: "nfc-plain",
                                 id: uid.iter().map(|x| format!("{:02x}", x)).collect::<String>(),
                             }},
+                            nfcservice::CardDetail::GetraenkeKarteMissing => {
+                                Message{
+                                    r#type: "nfc-missing-getraenkekarte",
+                                    id: String::new(),
+                                }
+                            }
                         }
                     }
                 }
