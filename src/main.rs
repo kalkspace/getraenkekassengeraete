@@ -13,6 +13,7 @@ use warp::{sse::Event, Filter};
 
 mod barcodeservice;
 mod nfcservice;
+mod stornoservice;
 
 /// Our global unique client id counter.
 static NEXT_CLIENT_ID: AtomicUsize = AtomicUsize::new(1);
@@ -35,9 +36,11 @@ async fn consume_device_events<'a>(
     clients: Clients<'a>,
     nfc_stream: impl Stream<Item = Option<nfcservice::CardDetail>>,
     barcode_stream: impl Stream<Item = String>,
+    storno_stream: impl Stream<Item = ()>,
 ) {
     tokio::pin!(nfc_stream);
     tokio::pin!(barcode_stream);
+    tokio::pin!(storno_stream);
     loop {
         let message = tokio::select! {
             nfc = nfc_stream.next() => {
@@ -77,6 +80,15 @@ async fn consume_device_events<'a>(
                     r#type: "barcode",
                     id: barcode,
                 }
+            },
+            storno = storno_stream.next() => {
+                if storno.is_none() {
+                    continue;
+                }
+                Message {
+                    r#type: "storno",
+                    id: String::from(""),
+                }
             }
         };
         clients.lock().unwrap().retain(move |_, tx| {
@@ -93,6 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // hardcoded for now
     let barcode_stream =
         barcodeservice::run("/dev/input/by-id/usb-Newtologic_NT4010S_XXXXXX-event-kbd");
+    let storno_stream = stornoservice::run("/dev/ttyACM0");
 
     // Keep track of all connected clients, key is usize, value
     // is an event stream sender.
@@ -100,7 +113,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
     let cloned_clients = clients.clone();
     tokio::spawn(async move {
-        consume_device_events(cloned_clients, nfc_stream, barcode_stream).await;
+        consume_device_events(cloned_clients, nfc_stream, barcode_stream, storno_stream).await;
     });
 
     // failing to make this optional
