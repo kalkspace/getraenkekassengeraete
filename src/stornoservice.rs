@@ -92,6 +92,7 @@ impl StornoReader {
         let mut storno = Instant::now();
         let min_storno_time = Duration::from_millis(50);
         loop {
+            // this currently blocks forever even if you pull out the device. unclear how to solve that
             let r = fd.read(&mut buf).await?;
             if r == 0 {
                 continue;
