@@ -105,7 +105,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // hardcoded for now
     let barcode_stream =
         barcodeservice::run("/dev/input/by-id/usb-Newtologic_NT4010S_XXXXXX-event-kbd");
-    let storno_stream = stornoservice::run("/dev/ttyACM0");
+    let storno_stream = stornoservice::run("/dev/stornoschluessel");
 
     // Keep track of all connected clients, key is usize, value
     // is an event stream sender.
