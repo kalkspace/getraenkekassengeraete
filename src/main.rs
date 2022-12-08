@@ -137,7 +137,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let addr = match std::env::var("BIND") {
         Ok(var) => var,
-        Err(_) => String::from("0.0.0.0:3030"),
+        Err(_) => String::from("[::]:3030"),
     };
 
     warp::serve(route).run(addr.parse::<SocketAddr>()?).await;
