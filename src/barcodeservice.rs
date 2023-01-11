@@ -1,7 +1,6 @@
 use async_stream::stream;
-use futures_core::stream::Stream;
+use futures::Stream;
 use libc::ioctl;
-use log::{error, warn};
 use std::convert::TryFrom;
 use std::error::Error;
 use std::fs::File;
@@ -91,7 +90,7 @@ impl BarcodeScanner {
                 self.keyboard_file = match KeyboardFile::new(&self.dev) {
                     Ok(fd) => Some(fd),
                     Err(e) => {
-                        error!("Error accessing keyboard {}", e);
+                        tracing::error!("Error accessing keyboard {}", e);
                         if sleep_secs == 0 {
                             sleep_secs = 1;
                         } else {
@@ -147,12 +146,12 @@ impl BarcodeScanner {
                         if s.len() > 0 {
                             return Ok(s);
                         }
-                        warn!("Tried submitting empty barcode. Skipping.");
+                        tracing::warn!("Tried submitting empty barcode. Skipping.");
                         // ignore everything so far...expect new, clean barcode
                         s.clear();
                     }
                     _ => {
-                        warn!("Invalid scancode {}", event.code);
+                        tracing::warn!("Invalid scancode {}", event.code);
                         s.clear();
                     }
                 }
@@ -166,7 +165,7 @@ impl BarcodeScanner {
                 Ok(s) => return s,
                 Err(e) => {
                     // todo logging
-                    error!("Error reading barcode {}", e);
+                    tracing::error!("Error reading barcode {}", e);
                     self.keyboard_file = None
                 }
             }

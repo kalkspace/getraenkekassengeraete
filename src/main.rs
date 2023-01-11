@@ -1,17 +1,28 @@
-use futures::{Stream, StreamExt};
+use axum::extract::State;
+use axum::http::{HeaderValue, Method};
+use axum::middleware;
+use axum::response::sse::{Event, Sse};
+use axum::routing::get;
+use axum::Router;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::error::Error;
 use std::net::SocketAddr;
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc, Mutex,
-};
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use std::{convert::Infallible, sync::atomic::AtomicUsize};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use warp::{sse::Event, Filter};
+use tokio_stream::{Stream, StreamExt as _};
+use tower::ServiceBuilder;
+use tower_http::cors::CorsLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use crate::middlewares::force_local_request;
 
 mod barcodeservice;
+mod middlewares;
 mod nfcservice;
 mod stornoservice;
 
@@ -21,8 +32,8 @@ static NEXT_CLIENT_ID: AtomicUsize = AtomicUsize::new(1);
 // this is a generic type right now and I don't like it but I fail
 // to send two different messages because of rust n00bness
 #[derive(Debug, Clone, Serialize)]
-struct Message<'a> {
-    r#type: &'a str,
+struct Message {
+    r#type: String,
     id: String,
 }
 
@@ -30,10 +41,10 @@ struct Message<'a> {
 ///
 /// - Key is their id
 /// - Value is a sender of `Message`
-type Clients<'a> = Arc<Mutex<HashMap<usize, mpsc::UnboundedSender<Message<'a>>>>>;
+type Clients = Arc<Mutex<HashMap<usize, mpsc::UnboundedSender<Message>>>>;
 
-async fn consume_device_events<'a>(
-    clients: Clients<'a>,
+async fn consume_device_events(
+    clients: Clients,
     nfc_stream: impl Stream<Item = Option<nfcservice::CardDetail>>,
     barcode_stream: impl Stream<Item = String>,
     storno_stream: impl Stream<Item = ()>,
@@ -52,19 +63,19 @@ async fn consume_device_events<'a>(
                 let nfc = nfc.unwrap();
                 match nfc {
                     None => Message{
-                        r#type: "nfc-invalid",
+                        r#type: "nfc-invalid".to_string(),
                         id: String::new(),
                     },
                     Some(card_detail) => {
                         match card_detail {
                             nfcservice::CardDetail::MeteUuid(uuid) => {
                                 Message{
-                                r#type: "nfc-uuid",
+                                r#type: "nfc-uuid".to_string(),
                                 id: uuid,
                             }},
                             nfcservice::CardDetail::Plain(uid) => {
                                 Message{
-                                r#type: "nfc-plain",
+                                r#type: "nfc-plain".to_string(),
                                 id: uid.iter().map(|x| format!("{:02x}", x)).collect::<String>(),
                             }},
                         }
@@ -77,7 +88,7 @@ async fn consume_device_events<'a>(
                 }
                 let barcode = barcode.unwrap();
                 Message {
-                    r#type: "barcode",
+                    r#type: "barcode".to_string(),
                     id: barcode,
                 }
             },
@@ -86,7 +97,7 @@ async fn consume_device_events<'a>(
                     continue;
                 }
                 Message {
-                    r#type: "storno",
+                    r#type: "storno".to_string(),
                     id: String::from(""),
                 }
             }
@@ -100,53 +111,65 @@ async fn consume_device_events<'a>(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    pretty_env_logger::init();
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    // Keep track of all connected clients, key is usize, value
+    // is an event stream sender.
+    let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
+    let cloned_clients = clients.clone();
+
     let nfc_stream = nfcservice::run()?;
     // hardcoded for now
     let barcode_stream =
         barcodeservice::run("/dev/input/by-id/usb-Newtologic_NT4010S_XXXXXX-event-kbd");
     let storno_stream = stornoservice::run("/dev/stornoschluessel");
 
-    // Keep track of all connected clients, key is usize, value
-    // is an event stream sender.
-
-    let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
-    let cloned_clients = clients.clone();
     tokio::spawn(async move {
         consume_device_events(cloned_clients, nfc_stream, barcode_stream, storno_stream).await;
     });
 
-    // failing to make this optional
-    let allow_origin = std::env::var("ALLOW_ORIGIN").unwrap_or(String::from("https://example.com"));
+    let allow_origin = std::env::var("ALLOW_ORIGIN")
+        .ok()
+        .map(|allow_origin| allow_origin.parse::<HeaderValue>().unwrap());
 
-    // Turn our "state" into a new Filter...
-    let clients = warp::any().map(move || clients.clone());
-    let route = warp::path::end()
-        .and(warp::get())
-        .and(clients)
-        .map(|clients| {
-            let stream = cashier_event_stream(clients);
-            // reply using server-sent events
-            warp::sse::reply(warp::sse::keep_alive().stream(stream))
-        })
-        .with(
-            warp::cors()
-                .allow_origin(allow_origin.as_str())
-                .allow_methods(vec!["GET", "POST", "DELETE"]),
-        );
+    // build our application with a route
+    let app = Router::new()
+        .route("/", get(cashier_event_stream))
+        .with_state(clients)
+        .layer(ServiceBuilder::new().layer(middleware::from_fn(force_local_request)));
+
+    // there is option_layer() in tower but this changes the error type which mages it incompatible with servicebuilder so add it separately
+    let app = match allow_origin {
+        Some(allow_origin) => app.layer(
+            CorsLayer::new()
+                .allow_origin(allow_origin)
+                .allow_methods([Method::GET]),
+        ),
+        None => app,
+    };
 
     let addr = match std::env::var("BIND") {
         Ok(var) => var,
         Err(_) => String::from("[::]:3030"),
-    };
+    }
+    .parse::<SocketAddr>()?;
 
-    warp::serve(route).run(addr.parse::<SocketAddr>()?).await;
+    tracing::info!("getraenkekassengeraete listening on {}", addr);
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
+        .await?;
+
     Ok(())
 }
 
-fn cashier_event_stream<'a>(
-    clients: Clients<'a>,
-) -> impl Stream<Item = Result<Event, warp::Error>> + Send + 'a {
+async fn cashier_event_stream(
+    State(clients): State<Clients>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     // Use a counter to assign a new unique ID for this client.
     let my_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
 
@@ -156,12 +179,20 @@ fn cashier_event_stream<'a>(
     let rx = UnboundedReceiverStream::new(rx);
 
     // Save the sender in our list of connected users.
-    clients.lock().unwrap().insert(my_id, tx);
+    {
+        let mut clients = clients.lock().unwrap();
+        clients.insert(my_id, tx);
+        tracing::debug!("Connected clients: {}", clients.len());
+    }
 
-    // Convert messages into Server-Sent Events and return resulting stream.
-    rx.map(|msg| {
+    let stream = rx.map(|msg: Message| {
         Ok(Event::default()
             .event((msg.r#type).clone())
             .data(serde_json::to_string(&msg.id).unwrap()))
-    })
+    });
+    Sse::new(stream).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(Duration::from_secs(10))
+            .text(""),
+    )
 }

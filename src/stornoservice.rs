@@ -1,6 +1,5 @@
 use async_stream::stream;
-use futures_core::stream::Stream;
-use log::error;
+use futures::Stream;
 use nix::sys::termios;
 use std::convert::TryFrom;
 use std::error::Error;
@@ -64,7 +63,7 @@ impl StornoReader {
                 self.storno_file = match StornoFile::new(&self.dev) {
                     Ok(fd) => Some(fd),
                     Err(e) => {
-                        error!("Error accessing storno file {}", e);
+                        tracing::error!("Error accessing storno file {}", e);
                         if sleep_secs == 0 {
                             sleep_secs = 1;
                         } else {
@@ -112,7 +111,7 @@ impl StornoReader {
             match self.try_read_storno().await {
                 Ok(()) => return (),
                 Err(e) => {
-                    error!("Error reading storno {}", e);
+                    tracing::error!("Error reading storno {}", e);
                     self.storno_file = None
                 }
             }
