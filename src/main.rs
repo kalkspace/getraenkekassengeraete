@@ -19,12 +19,8 @@ use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use crate::middlewares::force_local_request;
-
-mod barcodeservice;
-mod middlewares;
-mod nfcservice;
-mod stornoservice;
+use getraenkekassengeraete::middlewares::force_local_request;
+use getraenkekassengeraete::{barcodeservice, nfcservice, stornoservice};
 
 /// Our global unique client id counter.
 static NEXT_CLIENT_ID: AtomicUsize = AtomicUsize::new(1);
