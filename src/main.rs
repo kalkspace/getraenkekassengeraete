@@ -55,6 +55,7 @@ async fn consume_device_events(
     loop {
         let message = tokio::select! {
             nfc = nfc_stream.next() => {
+                tracing::debug!("NFC Event: {:?}", nfc);
                 // too much nesting :S
                 // unsure why there is another option
                 if nfc.is_none() {
@@ -83,6 +84,7 @@ async fn consume_device_events(
                 }
             },
             barcode = barcode_stream.next() => {
+                tracing::debug!("Barcode Event: {:?}", barcode);
                 if barcode.is_none() {
                     continue;
                 }
@@ -93,6 +95,7 @@ async fn consume_device_events(
                 }
             },
             storno = storno_stream.next() => {
+                tracing::debug!("Storno Event: {:?}", storno);
                 if storno.is_none() {
                     continue;
                 }
