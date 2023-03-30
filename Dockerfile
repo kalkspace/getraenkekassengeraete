@@ -2,6 +2,9 @@ FROM rust as builder
 
 WORKDIR /src
 
+# https://github.com/tonistiigi/binfmt/issues/122#issuecomment-1359175441
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+
 RUN apt-get update && apt-get install -y libpcsclite-dev
 COPY . /src/
 
