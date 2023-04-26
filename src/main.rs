@@ -20,7 +20,7 @@ use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use getraenkekassengeraete::middlewares::force_local_request;
-use getraenkekassengeraete::{barcodeservice, nfcservice, stornoservice};
+use getraenkekassengeraete::{barcodeservice, stornoservice};
 
 /// Our global unique client id counter.
 static NEXT_CLIENT_ID: AtomicUsize = AtomicUsize::new(1);
@@ -41,7 +41,7 @@ type Clients = Arc<Mutex<HashMap<usize, mpsc::UnboundedSender<Message>>>>;
 
 async fn consume_device_events(
     clients: Clients,
-    nfc_stream: impl Stream<Item = Option<nfcservice::CardDetail>>,
+    nfc_stream: impl Stream<Item = Option<nfc_stream::CardDetail>>,
     barcode_stream: impl Stream<Item = String>,
     storno_stream: impl Stream<Item = ()>,
 ) {
@@ -65,12 +65,12 @@ async fn consume_device_events(
                     },
                     Some(card_detail) => {
                         match card_detail {
-                            nfcservice::CardDetail::MeteUuid(uuid) => {
+                            nfc_stream::CardDetail::MeteUuid(uuid) => {
                                 Message{
                                 r#type: "nfc-uuid".to_string(),
                                 id: uuid,
                             }},
-                            nfcservice::CardDetail::Plain(uid) => {
+                            nfc_stream::CardDetail::Plain(uid) => {
                                 Message{
                                 r#type: "nfc-plain".to_string(),
                                 id: uid.iter().map(|x| format!("{:02x}", x)).collect::<String>(),
@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
     let cloned_clients = clients.clone();
 
-    let nfc_stream = nfcservice::run()?;
+    let nfc_stream = nfc_stream::run()?;
     // hardcoded for now
     let barcode_stream =
         barcodeservice::run("/dev/input/by-id/usb-Newtologic_NT4010S_XXXXXX-event-kbd");
